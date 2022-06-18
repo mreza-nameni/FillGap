@@ -1,0 +1,269 @@
+% A script to filling the gap of seismic ambient noise 
+% by modification of the frequency content 
+% of the existing time series
+%********************************************************************************
+clc
+clear all
+close all
+warning off
+[dataname, path]=uigetfile({'*.xlsx';'*.xls'});    % get input file 
+
+cd(path)
+
+data_1=xlsread(dataname);
+fnan=find(isnan(data_1));
+data_1(fnan)=0;
+trend=questdlg('Have you deleted the data trend?', 'Trend', 'Yes', 'No', 'Yes');
+
+Comparison=strcmp('No',trend);
+if Comparison==1
+    data_1=detrend(data_1);
+    data_1=data_1-mean(data_1);
+end
+data_1(fnan)=nan;
+MAX=max(data_1);
+MIN=min(data_1);
+gap=find(isnan(data_1));
+zerodata_1=data_1;
+zerodata_1(gap)=0;
+Srate=inputdlg('Please enter the sampling rate', 'Sampling Rate', 1, {'50'});
+Srate=str2num(Srate{1,1});
+%    
+pause(1);
+minfrequency=inputdlg('Please enter the minimum frequency (Hz)', 'Minimum Frequency (Hz)', 1, {'0.1'});
+minfrequency=str2num(minfrequency{1,1});
+
+pause(1);
+Maxperiod=1/minfrequency;
+MLGAP=Srate*Maxperiod;
+pause(2);
+figure
+x1=[0,length(data_1),length(data_1),0];
+y1=[MAX*1.5,MAX*1.5,MIN*1.5,MIN*1.5];
+
+fill(x1,y1,'k')
+pause(0.5)
+hold on
+plot(data_1);
+axis([0 length(data_1) min(data_1)*1.5 max(data_1)*1.5]);
+pause(5)
+
+% Operation to detect gaps during time series
+for g=1:length(gap);
+    sample=gap(g);
+
+    for gg=1:50;
+        azsample1(gg)=zerodata_1(sample+gg);
+        azsample2(gg)=zerodata_1(sample-gg);
+    end
+
+    disjunction=or(mean(azsample1)==0,mean(azsample2)==0);
+
+    if disjunction==1;
+        gap(g)=gap(g);
+
+    else
+        gap(g)=nan;
+
+    end
+end
+% Operation to determine the number of gaps during the entire time series
+gapnan=find(isnan(gap));
+gap(gapnan)=[];
+P=0;
+for qq=1:10 %maximum number of gap
+    Lgap=length(gap);
+    for q=1+P:Lgap-1;
+        if gap(q+1)-gap(q)==1;
+            gaptotal{qq,1}(q)=gap(q);
+
+        else
+            P=q;
+
+            % ii=length(gap1);
+            break
+
+        end
+    end
+    if q==Lgap-1
+        break
+    end
+end
+numbergap=numel(gaptotal(:,1))
+
+for n=1:numbergap;
+    find1=find(gaptotal{n,1}==0);
+    gaptotal{n,1}(find1)=[];
+end
+for z=1:numbergap;
+    hold on
+    %plot(data_1)
+
+    x=[gaptotal{z,1}(2),gaptotal{z,1}(end),gaptotal{z,1}(end),gaptotal{z,1}(2)];
+    y=[MAX*1.2,MAX*1.2,MIN*1.2,MIN*1.2];
+
+    fill(x,y,'r')
+    pause(2)
+    %        clear x
+    %        clear y
+end
+pause(3)
+figure
+x1=[0,length(data_1),length(data_1),0];
+y1=[MAX*1.5,MAX*1.5,MIN*1.5,MIN*1.5];
+
+fill(x1,y1,'k')
+% Determining the length of the base signal  
+% and the periodogram window based on
+% the gap length, minimum frequency and sampling rate
+for n=1:numbergap;
+    %     find1=find(gaptotal{n,1}==0);
+    %     gaptotal{n,1}(find1)=[];
+    Lengthgap(n,1)=length(gaptotal{n,1})
+    if Lengthgap(n,1)<=3000
+
+        Wco=1.6;
+        Lenco=9;
+
+    elseif Lengthgap(n,1)>3000 && Lengthgap(n,1) <= 15000
+
+        Wco=1.6;
+        Lenco=10;
+
+    elseif Lengthgap(n,1) > 15000 && Lengthgap(n,1) <= 30000
+        Wco=1.6;
+        Lenco=11;
+
+    elseif Lengthgap(n,1) > 30000 && Lengthgap(n,1) <= 45000
+        Wco=1.6;
+        Lenco=11;
+
+    elseif Lengthgap(n,1) > 45000 && Lengthgap(n,1) <= 60000
+        Wco=1.6;
+        Lenco=19;
+
+    elseif Lengthgap(n,1) > 60000 && Lengthgap(n,1) <= 75000
+        Wco=1.6;
+        Lenco=30;
+
+    else
+
+        ev1=sprintf('gap length %i is longer than allowed\n',n)
+        eval('disp(ev1)');
+        continue
+    end
+
+
+    lbef=Srate*Maxperiod*Lenco;    %base signal length
+    lnext=lbef;                     %base signal length
+    abef=data_1(gaptotal{n,1}(1)-lbef:gaptotal{n,1}(1)-1);%base signal
+    anext=data_1(gaptotal{n,1}(end)+2:gaptotal{n,1}(end)+lnext+1);%base signal
+    bef=data_1(gaptotal{n,1}(1)-Lengthgap(n,1):gaptotal{n,1}(1)-1);
+    next=data_1(gaptotal{n,1}(end)+2:gaptotal{n,1}(end)+Lengthgap(n,1)+1);%primary signal
+    Fbef=fft(bef);
+    Fnext=fft(next);
+    %Prect(:,:)=[];
+    try
+        divide=25;       %%% divide=divide the signal;
+        Ss=round(lbef/divide);   %%% Ss=step size
+        Lwindow=Srate*Maxperiod*Wco;    %%% Lwindow=window length;
+        for ii=0:Ss:lbef;
+            X=abef(1+ii:Lwindow+ii);
+            LX=length(X);
+            if Lengthgap(n,1)<=3000
+                WINDOW=chebwin(LX);
+            elseif Lengthgap(n,1)>3000 && Lengthgap(n,1)<= 15000
+                WINDOW=chebwin(LX);
+            elseif Lengthgap(n,1) > 15000 && Lengthgap(n,1)<= 30000
+                WINDOW=nuttallwin(LX);
+            elseif Lengthgap(n,1) > 30000 && Lengthgap(n,1)<= 45000
+                WINDOW=blackmanharris(LX);
+            elseif Lengthgap(n,1) > 45000 && Lengthgap(n,1)<= 60000
+                WINDOW=blackmanharris(LX);
+            elseif Lengthgap(n,1) > 60000 && Lengthgap(n,1)<= 75000
+                WINDOW=blackmanharris(LX);
+
+            end
+
+            Prect(:,(ii+Ss)/Ss)=periodogram(X,WINDOW,'twosided');
+        end
+    catch
+        LP=length(Prect(1,:));
+    end
+    try
+        divide=25;        %%% divide=divide the signal;
+        Ss=round(lnext/divide);   %%% Ss=step size
+        Lwindow=Srate*Maxperiod*Wco;    %%% Lwindow=window length;
+        for iii=0:Ss:lnext;
+            X=anext(1+iii:Lwindow+iii);
+            LX=length(X);
+            Prect(:,((iii+Ss)/Ss)+LP)=periodogram(X,WINDOW,'twosided');
+        end
+    catch
+        LP=length(Prect(1,:));
+        Prectsum=Prect(:,1)+Prect(:,2);
+    end
+    for e=3:LP
+        Prectsum=Prectsum+Prect(:,e);
+    end
+    LRP=length(Prect(:,1));%%%LRP=length row P
+    ran=next;
+    n2=n+1;
+    if sum(isnan(ran))>=1;
+        ev=sprintf('The distance between gap %i and %i is less than allowed)\n',n,n2)
+        eval('disp(ev)');
+        %     clear bef next ran Fbef Fnext abef anext
+        %     continue
+    end
+
+    Fran=fft(ran);
+    LFran=length(Fran);
+
+    MFran=((max(abs(Fran))+max(abs(Fbef)))/2);
+    %%% Eq means Equal
+    PrectEq=abs(resample(Prectsum,LFran,LRP));
+    %%% co means Coefficient
+    Prectco=PrectEq./max(PrectEq);
+    for j=1:LFran
+        minpowerrect(j)=sqrt(abs(((Prectco(j)*MFran)^2)-(imag(Fran(j)))^2));
+        if real(Fran(j))<0
+            minpowerrect(j)=minpowerrect(j)*-1;
+        end
+    end
+    % Franrect=Fran;
+    for jjj=1:LFran
+
+        Franstackrect(jjj)=complex(minpowerrect(jjj),imag(Fran(jjj)));
+
+    end
+    creat=real(ifft(Franstackrect));
+    creat(end+1)=creat(end);
+    % next2=next;
+    % find2=find(isnan(next2));
+    % next2(find2)=0;
+    % next2(find2)=mean(abs(next2));
+
+    suN=sum(abs(next));
+    suB=sum(abs(bef));
+    su1=(suN+suB)/2;
+    su2=sum(abs(creat));
+    co=su1/su2;
+    creat=creat.*co;
+    fillgap{n,1}=creat;
+
+
+    data_1(gaptotal{n,1}(1):gaptotal{n,1}(end)+1)=creat;
+
+    hold on
+
+    plot(data_1);
+    axis([0 length(data_1) min(data_1)*1.5 max(data_1)*1.5]);
+
+    clear find1
+    clear Franstackrect
+    clear creat
+    clear Prect;clear Prectco;clear PrectEq;clear Prectsum next,
+
+end
+export_name=['fill_gap',dataname];
+xlswrite(export_name,data_1);   % write output file
