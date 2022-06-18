@@ -1,0 +1,8 @@
+The time series should be in an Excel file and only in one column. Cells should only contain numeric data and empty cells are considered as gap.
+
+Before and after the gap, data should be available as long as the gap, Otherwise, this program cannot be used.
+
+Based on the length of the gap, a suitable method is used to fill the gap.
+ The user must have accurate information about their data, including the minimum frequency, sampling rate and trend.
+
+The output file will be in Excel format, containing only one column.
